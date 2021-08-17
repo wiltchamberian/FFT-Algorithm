@@ -26,25 +26,35 @@ namespace Sun {
 	template<int n>
 	struct Proportional
 	{
-		static constexpr int value =  (1 << n) + Proportional<n - 1>().value;
-	};
-	template<>
-	struct  Proportional<0>{
-		static constexpr int value = 1;
+		static constexpr int value = (1 << (n + 1)) - 1;
 	};
 
 	template<class _T ,int _MAX_POWER = 8>
 	class FFT
 	{
 	public:
+		class Trait_Equal {
+		public:
+			inline std::complex<_T> operator() (const std::complex<_T>& input) {
+				return input;
+			}
+		};
+		class Trait_Conjugate {
+		public:
+			inline std::complex<_T> operator() (const std::complex<_T>& input) {
+				return std::conj(input);
+			}
+		};
 		
 		FFT() {
 			for (int m = 0; m <= _MAX_POWER; ++m) {
 				int n = (1 << m);
 				_T cof = 2 * A_PI * (1.0 / (_T)(n));
+				_T tmp = 0;
 				for (int k = 0; k < n; ++k) {
-					_T tmp = cof* _T(k);
+					//_T tmp = cof* _T(k);
 					W[n - 1 + k] = std::complex<_T>(cos(tmp), -sin(tmp));
+					tmp += cof;
 				}
 			}
 			table.fill(0);
@@ -56,11 +66,16 @@ namespace Sun {
 			}
 		}
 
-		template<class _InputIter, class _OutIter>
-		void run_fft(_InputIter start, _InputIter end, _OutIter ostart) {	
+		template<class _InputIter, class _OutIter ,class _Trait = Trait_Equal>
+		bool run_fft(_InputIter start, _InputIter end, _OutIter ostart) {	
 			size_t n = std::distance(start,end);		
 			assert(isPowerOfTwo(n));
+			int power = log2(n);
+			bool go = power <= _MAX_POWER;
+			assert(go,"power should less or equal than _MAX_POWER");
+			if (!go) return false;
 
+			_Trait trait;
 			//FFT将每两组合并为一组
 			//总共多少组
 			int times = n;
@@ -78,44 +93,47 @@ namespace Sun {
 				auto iter = ostart;
 				//每两组作为一个整体循环
 				int nt = times >> 1;
-				for (int k = 0; k <nt; ++k) {
-					//两组中的第一组
-					auto iter2 = iter + len;
+				std::complex<_T> tmp;
+				for (int k = 0; k < nt; ++k) {
+					auto iter2 = iter + len;	
 					for (int i = 0; i < len; ++i) {
-						//第二组对应值乘以系数W[K][N]
-						*(iter2) =   W[i + (len<<1) -1]* (*(iter2));
-						//更新第一组X=G+H*W
-						*iter = *iter + *iter2;
+						tmp = trait(W[i + (len << 1) - 1]) * (*(iter2));			
+						*iter2 = *iter - tmp;
+						*iter = *iter + tmp;
+						
 						++iter;
 						++iter2;
 					}
-					//两组中的第二组
-					for (int j = 0; j < len; ++j) {
-						//X=G-W*H=G+W*H-W*H-W*H
-						*(iter) = *(iter - len) - *iter - *iter;				
-						++iter;
-					}
+					iter = iter2;
 				}
 				len = len << 1;
 				times = times >> 1;
 			}
 
-			return;
+			return true;
 		}
-			
+
+		template<class _InputIter, class _OutIter>
+		bool run_ifft(_InputIter start, _InputIter end, _OutIter ostart, bool normalize = false) {
+			bool ok = run_fft(start, end, ostart, Trait_Conjugate());
+			if (!ok) return false;
+			if (normalize == false) return true;
+			int dis = std::distance(start, end);
+			_T inv = _T(1) / _T(dis);
+			for (auto it = ostart; start != end; ++start, ++it) {
+				*it = (*it) * inv;
+			}
+			return true;
+		}
 	protected:
 		//将一个数字按照m位进行翻转 (m=8为例: 01001011 => 11010010)
 		inline int reverseBit(int k, int m) {
 			int output = 0;
-			//低位来自原数字的高位右移
-			for (int i = 0; i < (m>>1); ++i) {
-				output += (k & (1 << (m - i - 1))) >> (m - (i << 1) - 1);
-			}
-			//高位来自原数字的低位左移
-			int t = (m&1)==0?1:0;
-			for (int i = (m >> 1); i < m; ++i) {
-				output += (k & (1 << (m - i - 1))) << t;
-				t += 2;
+			int move = m - 1;
+			for (int i = 0; i < m; ++i) {
+				output += ((k & 1) << move);
+				k = k >> 1;
+				--move;
 			}
 			return output;
 		}
