@@ -10,7 +10,7 @@ FFT algorithm implemented in c++
 
 3, with precalculate table 
 
-4, Space O(n), all in placement
+4, Space O(1), all in placement
 
 5, support different type
 
